@@ -4,12 +4,60 @@ from urllib.parse import urljoin
 import requests
 from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
+import gspread
+from google.oauth2.service_account import Credentials
 
 # KEYWORD = "Amministratore di condominio Roma"
 # CITY = "Roma"
 # OUT = "step4_with_email.csv"
 
 import csv
+
+
+# Scope Google API
+SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
+
+def load_cities_from_sheet(sheet_id: str, worksheet_name: str) -> list:
+    creds = Credentials.from_service_account_file("service_account.json", scopes=SCOPES)
+    client = gspread.authorize(creds)
+    sheet = client.open_by_key(sheet_id)
+    worksheet = sheet.worksheet(worksheet_name)
+    
+    # Ambil semua values dari kolom "Multi CITIES"
+    data = worksheet.get_all_records()  # mengembalikan list of dict
+    cities = []
+    for row in data:
+        city = row.get("Multi CITIES")
+        if city:
+            cities.append(city.strip())
+    return cities
+
+
+
+# Scope untuk baca-tulis
+SCOPES_save = ["https://www.googleapis.com/auth/spreadsheets"]
+
+def save_rows_to_sheet(sheet_id: str, worksheet_name: str, rows: list):
+    creds = Credentials.from_service_account_file("service_account.json", scopes=SCOPES_save)
+    client = gspread.authorize(creds)
+    sheet = client.open_by_key(sheet_id)
+    
+    try:
+        worksheet = sheet.worksheet(worksheet_name)
+        worksheet.clear()  # hapus isi sheet lama
+    except gspread.exceptions.WorksheetNotFound:
+        worksheet = sheet.add_worksheet(title=worksheet_name, rows="1000", cols="20")
+    
+    header = ["Name","Address","City","Phone","Website","Email","Google Maps URL"]
+    worksheet.append_row(header)
+    
+    for row in rows:
+        worksheet.append_row(row)
+    
+    print(f"Saved {len(rows)} rows to {worksheet_name}")
+
+
+
 
 def load_cities_from_csv(path: str) -> list:
     cities = []
@@ -86,7 +134,11 @@ def extract_emails(website: str) -> str:
     # return semua email (dipisah ;)
     return "; ".join(sorted(emails))
 
-
+# docker build -t ariffadhillah33/n8n-scraper:1.0 .
+# docker run --rm ariffadhillah33/n8n-scraper:1.0
+# // ariffadhillah33@gmail.com
+# // ariffadhillah33
+# // vdwbFyi.dQFdZd8
 
 
 async def safe_text(page, sel):
@@ -109,7 +161,13 @@ async def safe_attr(page, sel, attr):
 
 async def main():
     rows = []
-    CITIES = load_cities_from_csv("cities.csv")  # ambil dari file CSV
+    # CITIES = load_cities_from_csv("cities.csv")  # ambil dari file CSV
+    # ganti dengan Sheet ID dan worksheet name
+    SHEET_ID = "1QKdYZs5Ecx8QksqkbWRTb3HMekKmFG3N0bf44VdeYFE"  
+    WORKSHEET_NAME = "Sheet1"
+
+    CITIES = load_cities_from_sheet(SHEET_ID, WORKSHEET_NAME)
+
     
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
@@ -184,15 +242,36 @@ async def main():
                         print(f"[{i+1}] {name} | {email or 'No email'}")
                         await page.wait_for_timeout(2000)
 
+                        # Simpan ke Google Sheet
+                        # SHEET_ID = "1QKdYZs5Ecx8QksqkbWRTb3HMekKmFG3N0bf44VdeYFE"  # ganti dengan Sheet ID kamu
+                        # WORKSHEET_NAME = "Sheet2"
+
+                        # save_rows_to_sheet(SHEET_ID, WORKSHEET_NAME, rows)
+
+                        # print("Saved:", OUT)
+
+
+                        # Setelah semua rows terkumpul
+                        # SHEET_ID = "1QKdYZs5Ecx8QksqkbWRTb3HMekKmFG3N0bf44VdeYFE"
+                        # WORKSHEET_NAME = "Sheet2"
+                        # save_rows_to_sheet(SHEET_ID, WORKSHEET_NAME, rows)
+
                     except Exception as e:
                         print("Error processing card:", i+1, e)
 
 
             # Simpan CSV
-            with open(OUT, "w", newline="", encoding="utf-8") as f:
-                w = csv.writer(f)
-                w.writerow(["Name","Address","City","Phone","Website","Email","Google Maps URL"])
-                w.writerows(rows)
+            # with open(OUT, "w", newline="", encoding="utf-8") as f:
+            #     w = csv.writer(f)
+            #     w.writerow(["Name","Address","City","Phone","Website","Email","Google Maps URL"])
+            #     w.writerows(rows)
+
+            # Simpan ke Google Sheet
+            SHEET_ID = "1QKdYZs5Ecx8QksqkbWRTb3HMekKmFG3N0bf44VdeYFE"  # ganti dengan Sheet ID kamu
+            WORKSHEET_NAME = "Sheet2"
+
+            save_rows_to_sheet(SHEET_ID, WORKSHEET_NAME, rows)
+
             print("Saved:", OUT)
 
         await browser.close()
